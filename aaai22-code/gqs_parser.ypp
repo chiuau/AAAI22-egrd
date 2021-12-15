@@ -1,0 +1,306 @@
+%skeleton "lalr1.cc" /* -*- C++ -*- */
+%require "3.7.6"
+%defines
+
+%define api.token.raw
+%define api.value.type variant
+%define api.token.constructor
+%define parse.assert
+%define api.parser.class { GqsParser }
+// %define api.value.automove
+
+%code requires {
+
+#include <iostream>
+#include <string>
+#include <vector>
+#include <set>
+#include <unordered_map>
+#include <memory>
+#include <cctype>
+
+#include "foctl_eval.h"
+#include "goal_query.h"
+
+class GqsReader;
+
+}  // code requires
+
+%code {
+#include "gqs_reader.h"
+}
+
+
+%parse-param { GoalQueryStatement<FPST,FPSV>& gqs }
+
+%parse-param { GqsReader& reader }
+%lex-param   { GqsReader& reader }
+
+%locations
+%define parse.trace
+%define parse.error detailed
+%define parse.lac full
+%define api.namespace {gqs}
+%define api.prefix {gqs_}
+%define api.location.file "gqs_location.hh"
+%debug
+%printer    { yyo << $$; }  CONSTANT VARIABLE
+
+
+%code provides
+{
+  #undef YY_DECL
+
+  // Tell Flex the expected prototype of yylex.
+  #define YY_DECL  gqs::GqsParser::symbol_type gqs_lex(GqsReader& reader)
+
+  // Declare the scanner.
+  YY_DECL;
+
+}
+
+%code provides
+{
+  extern std::set<std::string> all_variable_set;
+  extern std::set<std::string> weakly_recognizable_set;
+  extern std::set<std::string> not_free_variable_set;
+  extern std::unordered_map<std::string,std::unique_ptr<GoalQuery<FPST,FPSV>>> goal_query_db;
+}
+
+%code
+{
+  std::unordered_map<std::string,std::unique_ptr<GoalQuery<FPST,FPSV>>> goal_query_db;
+  std::set<std::string> all_variable_set;
+  std::set<std::string> weakly_recognizable_set;
+  std::set<std::string> not_free_variable_set;
+
+  std::set<std::string> setMinus(std::set<std::string> set1, std::set<std::string> set2) {
+    std::set<std::string> result;
+    for(auto& s: set1) {
+      if (set2.find(s) == set2.end()) result.insert(s);
+    }
+    return result;
+  }
+}
+
+%initial-action
+{
+  @$.begin.filename = @$.end.filename = &reader.getFilename();   // Initialize the initial location.
+  all_variable_set.clear();
+  weakly_recognizable_set.clear();
+};
+
+%define api.token.prefix {GQS_TOK_}
+
+%token
+  LPAREN     "("
+  RPAREN     ")"
+  LBRACKET   "["
+  RBRACKET   "]"
+  LBRACE     "{"
+  RBRACE     "}"
+  UNDERSCORE "_"
+  COMMA      ","
+  EQUAL      "="
+  SEMICOLON  ";"
+  CARET      "^"
+  ASTERISK   "*"
+;
+
+%token               GQS_END              0
+%token               TRUE_CONST           "true_const"
+%token               FALSE_CONST          "false_const"
+%token               NOT_CONNECTIVE       "not_connective"
+%token               AND_CONNECTIVE       "and_connective"
+%token               OR_CONNECTIVE        "or_connective"
+%token               IMPLY_CONNECTIVE     "imply_connective"
+%token               IFF_CONNECTIVE       "iff_connective"
+%token               FORALL               "forall"
+%token               EXIST                "exist"
+%token               NIL                  "NIL"
+%token               END                  "END"
+%token               AP                   "AP"
+%token               EP                   "EP"
+%token               AX                   "AX"
+%token               EX                   "EX"
+%token               XA                   "XA"
+%token               EQUAL_COMPARATOR     "equal_comparator"
+%token               NOT_EQUAL_COMPARATOR "not_equal_comparator"
+%token               NOT_IN               "not_in"
+%token <std::string> CONSTANT
+%token <std::string> VARIABLE
+%token <std::string> TRACE_VARIABLE
+
+
+%nterm <std::unique_ptr<GoalQuery<FPST,FPSV>>>            trace
+%nterm <std::unique_ptr<GoalQuery<FPST,FPSV>>>            trace_list
+%nterm                                                    trace_statement
+%nterm <std::unique_ptr<EdgeGoalQuery<FPST,FPSV>>>        edge_statement
+%nterm <std::unique_ptr<GoalQuery<FPST,FPSV>>>            state_statement
+%nterm <std::unique_ptr<GoalQuery<FPST,FPSV>>>            state
+%nterm <std::unique_ptr<GoalQuery<FPST,FPSV>>>            pp_formula
+%nterm <std::unique_ptr<ConstantGoalQuery<FPST,FPSV>>>    const_formula
+%nterm <std::unique_ptr<VariableGoalQuery<FPST,FPSV>>>    var_formula
+%nterm <std::unique_ptr<GoalQuery<FPST,FPSV>>>            term_formula
+%nterm <std::pair<std::vector<std::unique_ptr<VariableGoalQuery<FPST,FPSV>>>,std::vector<std::unique_ptr<ConstantGoalQuery<FPST,FPSV>>>>>  cv_list
+%nterm <std::pair<std::vector<std::unique_ptr<VariableGoalQuery<FPST,FPSV>>>,std::vector<std::unique_ptr<ConstantGoalQuery<FPST,FPSV>>>>>  excluded_cv_list
+%nterm <std::vector<std::pair<std::string,std::string>>>  unequal_term_list
+%nterm <std::pair<std::string,std::string>>               unequal_term
+
+
+
+%right SEMICOLON
+%right AP EP AX EX
+%precedence FORALL EXIST
+%left IFF_CONNECTIVE
+%right IMPLY_CONNECTIVE
+%right OR_CONNECTIVE
+%right AND_CONNECTIVE
+%precedence NOT_CONNECTIVE
+
+%start main
+
+%%
+
+
+main:
+      trace_statement trace {
+            gqs = GoalQueryStatement<FPST,FPSV>{std::move($2), setMinus(setMinus(all_variable_set,not_free_variable_set),weakly_recognizable_set), weakly_recognizable_set};
+          }
+    | trace_statement trace ";" unequal_term_list  {
+            gqs = GoalQueryStatement<FPST,FPSV>{std::move($2), setMinus(setMinus(all_variable_set,not_free_variable_set), weakly_recognizable_set), weakly_recognizable_set, $4};
+        }
+    ;
+
+trace_statement:
+      %empty                                          { }
+    | trace_statement TRACE_VARIABLE "=" trace ";"    { goal_query_db.insert(std::make_pair($2, std::move($4))); }
+    ;
+
+
+trace:
+      TRACE_VARIABLE {
+        if (goal_query_db.contains($1)) {
+          $$ = goal_query_db.at($1)->clone();
+        } else {
+          error(@1, "Unknown trace variable: " + $1);
+        }
+      }
+    | "[" state_statement "]" { $$ = std::move($2); }
+    ;
+
+
+trace_list:
+      trace             { $$ = std::move($1); }
+    | trace trace_list  { $$ = std::make_unique<OrGoalQuery<FPST,FPSV>>(std::move($1), std::move($2), true); }
+    ;
+
+
+state_statement:
+      trace_list            { $$ = std::move($1); }
+    | state                 { $$ = std::move($1); }
+    | state edge_statement  { $$ = std::make_unique<AndGoalQuery<FPST,FPSV>>(std::move($1), std::move($2), true); }
+    | NIL edge_statement    { $$ = std::make_unique<NilGoalQuery<FPST,FPSV>>(std::move($2)); }
+    ;
+
+
+edge_statement:
+      AP state_statement { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(true, true, std::move($2)); }
+    | EP state_statement { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(false, true, std::move($2)); }
+    | AP "_" "{" state "}" state_statement { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(true, true, std::move($6), std::move($4)); }
+    | EP "_" "{" state "}" state_statement { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(false, true, std::move($6), std::move($4)); }
+    | AP END { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(true, true, std::make_unique<EndGoalQuery<FPST,FPSV>>()); }
+    | EP END { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(false, true, std::make_unique<EndGoalQuery<FPST,FPSV>>()); }
+    | AP "_" "{" state "}" END { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(true, true, std::make_unique<EndGoalQuery<FPST,FPSV>>(), std::move($4)); }
+    | EP "_" "{" state "}" END { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(false, true, std::make_unique<EndGoalQuery<FPST,FPSV>>(), std::move($4)); }
+    | AX state_statement { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(true, false, std::move($2)); }
+    | EX state_statement { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(false, false, std::move($2)); }
+    | AX END { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(true, false, std::make_unique<EndGoalQuery<FPST,FPSV>>()); }
+    | EX END { $$ = std::make_unique<EdgeGoalQuery<FPST,FPSV>>(false, false, std::make_unique<EndGoalQuery<FPST,FPSV>>()); }
+    ;
+
+
+state:
+      pp_formula  { $$ = std::move($1); }
+    ;
+
+
+pp_formula:
+      term_formula                            { $$ = std::move($1); }
+    | TRUE_CONST                              { $$ = std::make_unique<TrueGoalQuery<FPST,FPSV>>(); }
+    | FALSE_CONST                             { $$ = std::make_unique<FalseGoalQuery<FPST,FPSV>>(); }
+    | NOT_CONNECTIVE pp_formula               { $$ = std::make_unique<NotGoalQuery<FPST,FPSV>>(std::move($2)); }
+    | pp_formula AND_CONNECTIVE pp_formula    { $$ = std::make_unique<AndGoalQuery<FPST,FPSV>>(std::move($1), std::move($3)); }
+    | pp_formula OR_CONNECTIVE pp_formula     { $$ = std::make_unique<OrGoalQuery<FPST,FPSV>>(std::move($1), std::move($3)); }
+    | pp_formula IMPLY_CONNECTIVE pp_formula  { $$ = std::make_unique<ImplyGoalQuery<FPST,FPSV>>(std::move($1), std::move($3)); }
+    | pp_formula IFF_CONNECTIVE pp_formula    { $$ = std::make_unique<IffGoalQuery<FPST,FPSV>>(std::move($1), std::move($3)); }
+    | FORALL var_formula excluded_cv_list "[" pp_formula "]"  {
+            not_free_variable_set.insert($2->getVariableName());
+            $$ = std::make_unique<ForAllGoalQuery<FPST,FPSV>>(std::move($2), $3.first, $3.second, std::move($5));
+        }
+    | EXIST var_formula excluded_cv_list "[" pp_formula "]"  {
+            not_free_variable_set.insert($2->getVariableName());
+            $$ = std::make_unique<ExistGoalQuery<FPST,FPSV>>(std::move($2), $3.first, $3.second, std::move($5));
+        }
+    | "(" pp_formula ")"                                     { $$ = std::move($2); }
+    | "(" term_formula EQUAL_COMPARATOR term_formula ")"     { $$ = std::make_unique<EqualGoalQuery<FPST,FPSV>>(std::move($2), std::move($4)); }
+    | "(" term_formula NOT_EQUAL_COMPARATOR term_formula ")" { $$ = std::make_unique<NotGoalQuery<FPST,FPSV>>(std::make_unique<EqualGoalQuery<FPST,FPSV>>(std::move($2), std::move($4))); }
+    | XA                                      { $$ = std::make_unique<ExcludeGoalQuery<FPST,FPSV>>(); }
+    | XA "_" "{" cv_list "}"                  { $$ = std::make_unique<ExcludeGoalQuery<FPST,FPSV>>($4.first, $4.second); }
+    ;
+
+
+excluded_cv_list:
+      %empty                      { $$ = {}; }
+    | NOT_IN "{" cv_list "}"      { $$ = std::move($3); }
+    ;
+
+
+const_formula:
+      CONSTANT          { $$ = std::make_unique<ConstantGoalQuery<FPST,FPSV>>($1); }
+    ;
+
+
+var_formula:
+      VARIABLE          { $$ = std::make_unique<VariableGoalQuery<FPST,FPSV>>($1); all_variable_set.insert($1); }
+    | VARIABLE "*"      { $$ = std::make_unique<VariableGoalQuery<FPST,FPSV>>($1); all_variable_set.insert($1); weakly_recognizable_set.insert($1); }
+    ;
+
+
+term_formula:
+      const_formula  { $$ = std::move($1); }
+    | var_formula    { $$ = std::move($1); }
+    ;
+
+
+cv_list:
+      %empty                      { $$ = {}; }
+    | const_formula               { $$ = {}; $$.second.push_back(std::move($1)); }
+    | var_formula                 { $$ = {}; $$.first.push_back(std::move($1)); }
+    | const_formula "," cv_list   { $3.second.push_back(std::move($1)); $$ = std::move($3); }
+    | var_formula "," cv_list     { $3.first.push_back(std::move($1)); $$ = std::move($3); }
+    ;
+
+
+unequal_term_list:
+      %empty                               { $$ = {}; }
+    | unequal_term                         { $$ = {}; $$.push_back($1); }
+    | unequal_term ";" unequal_term_list   { $$ = $3; $$.push_back($1); }
+    ;
+
+
+unequal_term:
+      VARIABLE NOT_EQUAL_COMPARATOR VARIABLE   { $$ = std::pair<std::string,std::string>($1, $3); }
+    | VARIABLE NOT_EQUAL_COMPARATOR CONSTANT   { $$ = std::pair<std::string,std::string>($1, $3); }
+    | CONSTANT NOT_EQUAL_COMPARATOR VARIABLE   { $$ = std::pair<std::string,std::string>($3, $1); }
+    ;
+
+
+%%
+
+
+
+void gqs::GqsParser::error(const gqs::GqsParser::location_type& l, const std::string& m) {
+  reader.error(l, m);
+}
+

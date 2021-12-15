@@ -1,0 +1,255 @@
+%skeleton "lalr1.cc" /* -*- C++ -*- */
+%require "3.7.6"
+%defines
+
+%define api.token.raw
+%define api.value.type variant
+%define api.token.constructor
+%define parse.assert
+%define api.parser.class { FoctlParser }
+// %define api.value.automove
+
+%code requires {
+
+#include <string>
+#include <vector>
+#include <memory>
+#include <cctype>
+
+#include "foctl_eval.h"
+#include "foctl.h"
+
+class FoctlReader;
+
+constexpr int getNodeId() {
+  return 0;
+}
+
+}  // code requires
+
+%code {
+#include "foctl_reader.h"
+}
+
+
+%parse-param { StatementRecord<FPST,FPSV>& sr }
+%parse-param { FoctlReader& reader }
+%lex-param   { FoctlReader& reader }
+
+%locations
+%define parse.trace
+%define parse.error detailed
+%define parse.lac full
+%define api.namespace {foctl}
+%define api.prefix {foctl_}
+%define api.location.file "foctl_location.hh"
+
+%code provides
+{
+  #undef YY_DECL
+
+  // Tell Flex the expected prototype of yylex.
+  #define YY_DECL  foctl::FoctlParser::symbol_type foctl_lex(FoctlReader& reader)
+
+  // Declare the scanner.
+  YY_DECL;
+
+}
+
+%debug
+
+%printer    { yyo << $$; }  IDENTIFIER
+
+
+%initial-action
+{
+  @$.begin.filename = @$.end.filename = &reader.getFilename();   // Initialize the initial location.
+};
+
+%define api.token.prefix {FOCTL_TOK_}
+
+%token
+  LPAREN     "("
+  RPAREN     ")"
+  LBRACKET   "["
+  RBRACKET   "]"
+  LBRACE     "{"
+  RBRACE     "}"
+  UNDERSCORE "_"
+  COMMA      ","
+  EQUAL      "="
+;
+
+%token                END                  0
+%token                TRUE_CONST           "true_const"
+%token                FALSE_CONST          "false_const"
+%token                LAST_CONST           "last_const"
+%token                NOT_CONNECTIVE       "not_connective"
+%token                AND_CONNECTIVE       "and_connective"
+%token                OR_CONNECTIVE        "or_connective"
+%token                IMPLY_CONNECTIVE     "imply_connective"
+%token                IFF_CONNECTIVE       "iff_connective"
+%token                FORALL               "forall"
+%token                EXIST                "exist"
+%token                AC                   "AC"
+%token                AF                   "AF"
+%token                AG                   "AG"
+%token                AX                   "AX"
+%token                EC                   "EC"
+%token                EF                   "EF"
+%token                EG                   "EG"
+%token                EX                   "EX"
+%token                UU                   "UU"
+%token                WW                   "WW"
+%token                EQUAL_COMPARATOR     "equal_comparator"
+%token                NOT_EQUAL_COMPARATOR "not_equal_comparator"
+%token                NOT_IN               "not_in"
+%token <std::string>  IDENTIFIER
+
+
+%nterm <std::unique_ptr<Statement<FPST,FPSV>>>  statement
+%nterm <std::unique_ptr<Term<FPST,FPSV>>>       term
+%nterm <std::unique_ptr<Statement<FPST,FPSV>>>  atom
+%nterm <EvaluatorBase::EvalSpecMap>             eval
+%nterm <EvaluatorBase::EvalSpecMap>             eval_term
+%nterm <std::vector<std::string>>               identifier_list
+%nterm <std::vector<std::string>>               var_excluded_identifiers
+
+
+%precedence AC AF AG AX EC EF EG EX
+%precedence FORALL EXIST
+%left IFF_CONNECTIVE
+%right IMPLY_CONNECTIVE
+%right OR_CONNECTIVE
+%right AND_CONNECTIVE
+%precedence NOT_CONNECTIVE
+
+
+%%
+
+%start main;
+
+main: statement   {
+        sr.setStatement(std::move($1));  // return the sentence
+      }
+
+statement:
+      TRUE_CONST eval    { $$ = make_unique<TrueStatement<FPST,FPSV>>(getNodeId(), $2); }
+    | FALSE_CONST eval   { $$ = make_unique<FalseStatement<FPST,FPSV>>(getNodeId(), $2); }
+    | LAST_CONST eval    { $$ = make_unique<LastStatement<FPST,FPSV>>(getNodeId(), $2); }
+    | atom               { $$ = std::move($1); }
+    | NOT_CONNECTIVE eval statement               { $$ = make_unique<NotStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | statement AND_CONNECTIVE eval statement     { $$ = make_unique<AndStatement<FPST,FPSV>>(getNodeId(), std::move($1), std::move($4), $3); }
+    | statement OR_CONNECTIVE eval statement      { $$ = make_unique<OrStatement<FPST,FPSV>>(getNodeId(), std::move($1), std::move($4), $3); }
+    | statement IMPLY_CONNECTIVE eval statement   { $$ = make_unique<ImplyStatement<FPST,FPSV>>(getNodeId(), std::move($1), std::move($4), $3); }
+    | statement IFF_CONNECTIVE eval statement     { $$ = make_unique<IffStatement<FPST,FPSV>>(getNodeId(), std::move($1), std::move($4), $3); }
+    | FORALL eval IDENTIFIER var_excluded_identifiers "[" statement "]" {
+          int variable_id = sr.assignVariableIdToName($3);
+          std::vector<std::pair<int,std::string>> excluded_variable_idnames;
+          std::vector<std::pair<int,std::string>> excluded_constant_idnames;
+          for(auto& term_name : $4) {
+            if (std::islower(term_name[0])) {
+              int vid = sr.getVariableIdMap().getIdByName(term_name);  // should have already added to the map
+              if (vid < 0) error(@4, "Unknown excluded variable " + term_name);
+              if (vid == variable_id) error(@4, "Self-excluding variable " + term_name);
+              if (std::ranges::find(excluded_variable_idnames, std::make_pair(vid, term_name)) == excluded_variable_idnames.end()) {
+                excluded_variable_idnames.push_back({ vid, term_name });
+              }
+            } else {
+              int cid = sr.assignConstantIdToName(term_name);
+              if (std::ranges::find(excluded_constant_idnames, std::make_pair(cid, term_name)) == excluded_constant_idnames.end()) {
+                excluded_constant_idnames.push_back({ cid, term_name });
+              }
+            }
+          }
+          $$ = make_unique<ForAllStatement<FPST,FPSV>>(getNodeId(), make_unique<Variable<FPST,FPSV>>(getNodeId(), $3, variable_id), excluded_variable_idnames, excluded_constant_idnames, std::move($6), $2);
+        }
+    | EXIST eval IDENTIFIER var_excluded_identifiers "[" statement "]" {
+          int variable_id = sr.assignVariableIdToName($3);
+          std::vector<std::pair<int,std::string>> excluded_variable_idnames;
+          std::vector<std::pair<int,std::string>> excluded_constant_idnames;
+          for(auto& term_name : $4) {
+            if (std::islower(term_name[0])) {
+              int vid = sr.getVariableIdMap().getIdByName(term_name);  // should have already added to the map
+              if (vid < 0) error(@4, "Unknown excluded variable " + term_name);
+              if (vid == variable_id) error(@4, "Self-excluding variable " + term_name);
+              if (std::ranges::find(excluded_variable_idnames, std::make_pair(vid, term_name)) == excluded_variable_idnames.end()) {
+                excluded_variable_idnames.push_back({ vid, term_name });
+              }
+            } else {
+              int cid = sr.assignConstantIdToName(term_name);
+              if (std::ranges::find(excluded_constant_idnames, std::make_pair(cid, term_name)) == excluded_constant_idnames.end()) {
+                excluded_constant_idnames.push_back({ cid, term_name });
+              }
+            }
+          }
+          $$ = make_unique<ExistStatement<FPST,FPSV>>(getNodeId(), make_unique<Variable<FPST,FPSV>>(getNodeId(), $3, variable_id), excluded_variable_idnames, excluded_constant_idnames, std::move($6), $2);
+        }
+    | AF eval statement        { $$ = make_unique<AllFinallyStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | AG eval statement        { $$ = make_unique<AllGloballyStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | AX eval statement        { $$ = make_unique<AllNextStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | AC statement UU eval statement "]"   { $$ = make_unique<AllUntilStatement<FPST,FPSV>>(getNodeId(), std::move($2), std::move($5), $4); }
+    | AC statement WW statement "]" {
+          auto clone4 = $4->clone();
+          $$ = make_unique<NotStatement<FPST,FPSV>>(getNodeId(), make_unique<SomeUntilStatement<FPST,FPSV>>(getNodeId(), make_unique<NotStatement<FPST,FPSV>>(getNodeId(), std::move($4)), make_unique<NotStatement<FPST,FPSV>>(getNodeId(), make_unique<OrStatement<FPST,FPSV>>(getNodeId(), std::move($2), std::move(clone4)))));
+        }
+    | EF eval statement        { $$ = make_unique<SomeFinallyStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | EG eval statement        { $$ = make_unique<SomeGloballyStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | EX eval statement        { $$ = make_unique<SomeNextStatement<FPST,FPSV>>(getNodeId(), std::move($3), $2); }
+    | EC statement UU eval statement "]"   { $$ = make_unique<SomeUntilStatement<FPST,FPSV>>(getNodeId(), std::move($2), std::move($5), $4); }
+    | EC statement WW statement "]" {
+          auto clone2 = $2->clone();
+          $$ = make_unique<OrStatement<FPST,FPSV>>(getNodeId(), make_unique<SomeGloballyStatement<FPST,FPSV>>(getNodeId(), std::move($2)), make_unique<SomeUntilStatement<FPST,FPSV>>(getNodeId(), std::move(clone2), std::move($4)));
+        }
+    | "(" statement ")"   { $$ = std::move($2); }
+    ;
+
+atom:
+      term   { $$ = std::move($1); }
+    | "(" term EQUAL_COMPARATOR eval term ")"       { $$ = make_unique<Equal<FPST,FPSV>>(getNodeId(), std::move($2), std::move($5), $4); }
+    | "(" term NOT_EQUAL_COMPARATOR eval term ")"   { $$ = make_unique<NotStatement<FPST,FPSV>>(getNodeId(), make_unique<Equal<FPST,FPSV>>(getNodeId(), std::move($2), std::move($5), $4)); }
+    ;
+
+term:
+      IDENTIFIER eval   {
+        if (std::islower($1[0])) {
+          int variable_id = sr.assignVariableIdToName($1);
+          $$ = make_unique<Variable<FPST,FPSV>>(getNodeId(), $1, variable_id, $2);
+        } else {
+          int constant_id = sr.assignConstantIdToName($1);
+          $$ = make_unique<Constant<FPST,FPSV>>(getNodeId(), $1, constant_id, $2);
+        }
+      }
+    ;
+
+eval:
+      %empty                  { $$ = EvaluatorBase::EvalSpecMap(); }
+    | "_" "{" eval_term "}"   { $$ = std::move($3); }
+    ;
+
+eval_term:
+      %empty                                   { $$ = EvaluatorBase::EvalSpecMap(); }
+    | IDENTIFIER "=" IDENTIFIER                { $$ = EvaluatorBase::EvalSpecMap({{$1,$3}}); }
+    | eval_term "," IDENTIFIER "=" IDENTIFIER  { $1[$3] = $5; $$ = std::move($1); }
+    ;
+
+var_excluded_identifiers:
+      %empty                              { $$ = std::vector<std::string>(); }
+    | NOT_IN "{" identifier_list "}"      { $$ = std::move($3); }
+    ;
+
+identifier_list:
+      %empty                           { $$ = std::vector<std::string>(); }
+    | IDENTIFIER                       { $$ = std::vector<std::string>({$1}); }
+    | identifier_list "," IDENTIFIER   { $1.push_back($3); $$ = std::move($1); }
+    ;
+
+
+%%
+
+
+
+void foctl::FoctlParser::error(const foctl::FoctlParser::location_type& l, const std::string& m) {
+  reader.error(l, m);
+}
+
