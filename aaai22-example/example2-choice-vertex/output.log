@@ -1,0 +1,22 @@
+File containing the goal query statement: gqs.txt
+Goal query statement in the file:     [ Nil AP_{XA} [ (x and XA_{x}) AP_{XA} End ] [ (x1 and XA_{x1}) AP_{XA} (x2 and XA_{x2}) AP_{XA} End ] ]
+Goal query statement (after parsing): [ Nil AP_{XA} [ (x and XA_{x}) AP_{XA} End ] [ (x1 and XA_{x1}) AP_{XA} (x2 and XA_{x2}) AP_{XA} End ] ]
+FO-CTL Statement (after translation): (exist x [(exist x1 [(exist x2 [A[(forall x11 [(!x11)]) U (((x && (forall x4 not_in {x} [(!x4)])) && (Last || AX AG (forall x5 [(!x5)]))) || ((x1 && (forall x6 not_in {x1} [(!x6)])) && AX A[(forall x10 [(!x10)]) U ((x2 && (forall x8 not_in {x2} [(!x8)])) && (Last || AX AG (forall x9 [(!x9)])))]))]])])])
+Extended FO-CTL Statement for WCD:    EF (exist x [(exist x1 [(exist x2 [A[(forall x11 [(!x11)]) U (((x && (forall x4 not_in {x} [(!x4)])) && (Last || AX AG (forall x5 [(!x5)]))) || ((x1 && (forall x6 not_in {x1} [(!x6)])) && AX A[(forall x10 [(!x10)]) U ((x2 && (forall x8 not_in {x2} [(!x8)])) && (Last || AX AG (forall x9 [(!x9)])))]))]])])])
+
+Creating path-based environment...
+
+
+Before design... 
+Solution found
+Partial solution: EF @23 (exist G2 [exist G1 [exist G1 [A[@23 (forall G1 [!_]) U @24 ((((G2) && (forall G1 [!_])) && ((Last) || _)) || _)]]]])
+Path to one of the worst states: [2 7 12 17 22 23]
+Path length to the worst states: 5
+The WCD: 4
+
+After design... 
+Partial solution: EF @3 (exist G2 [exist G4 [exist G2 [A[@3 (forall G1 [!_]) U @24 ((((G2) && (forall G1 [!_])) && ((Last) || _)) || _)]]]])
+Path to one of the worst states: [2 3]
+Path length to the worst states: 1
+The WCD: 0
+Modification plan: M0[del 6]

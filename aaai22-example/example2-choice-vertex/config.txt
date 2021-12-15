@@ -1,0 +1,2 @@
+SEARCH_ALL_PATH false
+USE_CACHE true

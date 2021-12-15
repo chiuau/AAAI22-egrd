@@ -1,0 +1,17 @@
+digraph G {
+  node [shape=ellipse]
+  edge [color="gray",arrowhead=normal]
+  0 [shape=point]
+  5 [label="(x and XA_{x})",color="black"]
+  11 [label="End",color="black"]
+  13 [label="(x1 and XA_{x1})",color="black"]
+  20 [label="(x2 and XA_{x2})",color="black"]
+  26 [label="End",color="black"]
+  1 [shape=point]
+  0->1 [label="XA",color="black"]
+  1->5 [color="black",style="dotted",arrowhead=none]
+  1->13 [color="black",style="dotted",arrowhead=none]
+  5->11 [label="XA",color="black"]
+  13->20 [label="XA",color="black"]
+  20->26 [label="XA",color="black"]
+}

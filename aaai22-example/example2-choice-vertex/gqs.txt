@@ -1,0 +1,1 @@
+[ Nil AP_{XA} [ (x and XA_{x}) AP_{XA} End ] [ (x1 and XA_{x1}) AP_{XA} (x2 and XA_{x2}) AP_{XA} End ] ]

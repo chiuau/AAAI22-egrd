@@ -1,0 +1,18 @@
+File containing the goal query statement: gqs.txt
+Goal query statement in the file:     [ Nil AP x1* AP x2 ]
+Goal query statement (after parsing): [ Nil AP x1* AP x2 ]
+FO-CTL Statement (after translation): (exist x2 [AF (exist x1 [(x1 && AX AF x2)])])
+Extended FO-CTL Statement for WCD:    EF (exist x2 [AF (exist x1 [(x1 && AX AF x2)])])
+
+Creating path-based environment...
+
+
+Before design... 
+Solution found
+Partial solution: EF @10 (exist Ghack [AF @29 (exist GB [(GB) && (AX (AF @39 (Ghack)))])])
+Path to one of the worst states: [2 3 4 10]
+Path length to the worst states: 3
+The WCD: 2
+
+After design... 
+No better design solution

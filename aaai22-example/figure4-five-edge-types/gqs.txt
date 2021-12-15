@@ -1,0 +1,1 @@
+$1 = [ G3 AP x ] ; [ x AP [ G1 AX G2 AP $1 ] [ G2 EX G1 EP $1 ] ]
